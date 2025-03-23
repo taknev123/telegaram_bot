@@ -80,6 +80,30 @@ async def next(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=match_id, text="Match ended. You can /match again.")
     await match(update, context)
 
+async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = get_user(None)
+    if not data:
+        await update.message.reply_text("No users found.")
+        return
+    msg = "👥 *Registered Users:*\n"
+    for u in data:
+        msg += f"\n👤 {u[1]} | {u[2]} → {u[3]} | \"{u[4]}\""
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+async def show_matches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = get_user(None)
+    if not data:
+        await update.message.reply_text("No users/matches found.")
+        return
+    msg = "💞 *Current Matches:*\n"
+    for u in data:
+        match = get_match(u[0])
+        if match:
+            partner = get_user(match)
+            if partner:
+                msg += f"\n{u[1]} 💘 {partner[1]}"
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
 def main():
     app = Application.builder().token(getenv("BOT_TOKEN")).build()
 
@@ -97,6 +121,8 @@ def main():
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("match", match))
     app.add_handler(CommandHandler("next", next))
+    app.add_handler(CommandHandler("show_users", show_users))
+    app.add_handler(CommandHandler("show_matches", show_matches))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message))
 
     print("🔥 Bot is running...")
