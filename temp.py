@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
@@ -16,7 +16,7 @@ init_db()
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # States
-NAME, GENDER, PREF, DESC, CITY, VIBE, INTENT = range(7)
+NAME, GENDER, PREF, DESC = range(4)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Welcome 😄 What's your name?")
@@ -38,110 +38,30 @@ async def get_pref(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return DESC
 
 async def get_desc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['desc'] = update.message.text
-    await update.message.reply_text("Which city are you from? 🏙")
-    return CITY
-
-async def get_city(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['city'] = update.message.text.lower()
-    await update.message.reply_text("What vibe best describes you? (Chill / Energetic / Funny / Introvert / Flirty) 🌈")
-    return VIBE
-
-async def get_vibe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['vibe'] = update.message.text.lower()
-    await update.message.reply_text("What are you looking for? (Just Vibing / Dating / Serious) 💞")
-    return INTENT
-
-async def get_intent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.message.from_user.id
-    context.user_data['intent'] = update.message.text.lower()
-    save_user(
-        user_id,
-        context.user_data['name'],
-        context.user_data['gender'],
-        context.user_data['pref'],
-        context.user_data['desc'],
-        context.user_data['city'],
-        context.user_data['vibe'],
-        context.user_data['intent']
-    )
+    context.user_data['desc'] = update.message.text
+    save_user(user_id, context.user_data['name'], context.user_data['gender'], context.user_data['pref'], context.user_data['desc'])
     await update.message.reply_text("All set! Type /match to find someone 💘")
     return ConversationHandler.END
 
 async def match(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    chat_type = update.message.chat.type
     user = get_user(user_id)
     if not user:
         await update.message.reply_text("Please /start and set your profile first.")
         return
 
-    best_score = 0
-    best_match = None
-
     for other in get_user(None):
         other_id = other[0]
-        if other_id == user_id or get_match(user_id):
+        if other_id == user_id:
             continue
-        if other[2] != user[3] or other[3] != user[2]:
-            continue
-
-        score = 0
-        user_keywords = set(user[4].lower().split())
-        other_keywords = set(other[4].lower().split())
-        common_keywords = user_keywords & other_keywords
-        score += len(common_keywords)  # 1-3 pts
-
-        if user[5] == other[5]:  # city
-            score += 4
-        if user[6] == other[6]:  # vibe
-            score += 3
-        if user[7] == other[7]:  # intent
-            score += 3
-
-        if score > best_score:
-            best_score = score
-            best_match = other
-
-    if best_match and best_score >= 7:
-        save_match(user_id, best_match[0])
-        save_match(best_match[0], user_id)
-
-        if chat_type == "group" or chat_type == "supergroup":
-            username1 = update.message.from_user.username
-            username2 = context.bot.get_chat(best_match[0]).username
-            display1 = f"@{username1}" if username1 else user[1]
-            display2 = f"@{username2}" if username2 else best_match[1]
-
-            text = (
-                f"💘 {display1} has been matched with {display2}!\n"
-                f"💬 About them: \"{best_match[4]}\"\n"
-                f"⭐ Match Score: {best_score}/13"
-            )
-
-            if username2:
-                keyboard = [[InlineKeyboardButton("💬 DM Now", url=f"https://t.me/{username2}")]]
-                await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-            else:
-                await update.message.reply_text(text)
-        else:
-            await update.message.reply_text(
-                f"🔥 You've been matched with *{best_match[1]}*\n"
-                f"💬 About them: \"{best_match[4]}\"\n"
-                f"⭐ Match Score: {best_score}/13\n"
-                f"Start chatting! Everything you say now will be forwarded anonymously. 💌",
-                parse_mode='Markdown')
-            await context.bot.send_message(
-                chat_id=best_match[0],
-                text=(
-                    f"🔥 You've been matched with *{user[1]}*\n"
-                    f"💬 About them: \"{user[4]}\"\n"
-                    f"⭐ Match Score: {best_score}/13\n"
-                    f"Start chatting! Everything you say now will be forwarded anonymously. 💌"
-                ),
-                parse_mode='Markdown')
-    else:
-        await update.message.reply_text("No match found right now 😢")
+        if other[2] == user[3] and other[3] == user[2] and not get_match(user_id):
+            save_match(user_id, other_id)
+            save_match(other_id, user_id)
+            await update.message.reply_text("You've been matched anonymously! Start chatting 💬")
+            await context.bot.send_message(chat_id=other_id, text="You've been matched anonymously! Say hi 💌")
+            return
+    await update.message.reply_text("No match found right now 😢")
 
 async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -167,7 +87,7 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     msg = "👥 *Registered Users:*\n"
     for u in data:
-        msg += f"\n👤 {u[1]} | {u[2]} → {u[3]} | \"{u[4]}\" | {u[5]}, {u[6]}, {u[7]}"
+        msg += f"\n👤 {u[1]} | {u[2]} → {u[3]} | \"{u[4]}\""
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def show_matches(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,9 +114,6 @@ def main():
             GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_gender)],
             PREF: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_pref)],
             DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_desc)],
-            CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_city)],
-            VIBE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_vibe)],
-            INTENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_intent)],
         },
         fallbacks=[]
     )
